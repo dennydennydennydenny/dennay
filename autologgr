@@ -1,20 +1,183 @@
-local remote = game:GetService("ReplicatedStorage")
-    :WaitForChild("Remotes")
-    :WaitForChild("ConfirmRemote")
+-- =====================================================
+--                   AUTO LOG SCRIPT
+-- =====================================================
 
-while true do
-    local t = tick()
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+local StarterGui       = game:GetService("StarterGui")
+local player           = Players.LocalPlayer
 
-    -- smooth RGB cycle using sine waves
-    local r = (math.sin(t) + 1) / 2
-    local g = (math.sin(t + 2) + 1) / 2
-    local b = (math.sin(t + 4) + 1) / 2
+Config                 = Config or {}
+Config.PlayerWhitelist = Config.PlayerWhitelist or {}
 
-    local args = {
-        Color3.new(r, g, b)
-    }
-
-    remote:FireServer(unpack(args))
-
-    task.wait(0.05) -- speed (lower = faster rainbow)
+-- ── Notifications ───────────────────────────────────────────────────────
+local function showNotification(title, text, duration)
+    duration = duration or 2
+    task.spawn(function()
+        for _ = 1, 20 do
+            local ok = pcall(function()
+                StarterGui:SetCore("SendNotification", {
+                    Title    = title,
+                    Text     = text,
+                    Duration = duration,
+                })
+            end)
+            if ok then break end
+            task.wait(0.5)
+        end
+    end)
 end
+
+-- ── Shutdown ──────────────────────────────────
+local function shutdownGame()
+    if Config.ExitMode == 0 then
+        -- Panic mode: instant kick, shows popup
+        pcall(function() player:Kick("Auto Log triggered") end)
+    else
+        -- Default: clean shutdown, no popup, returns to game page
+        pcall(function() game:Shutdown() end)
+    end
+end
+
+-- ── Whitelist ──────────────────────────────
+-- Instead of looping all players every Heartbeat frame, we maintain a
+-- cached set and update it only when players join or leave.
+local whitelistSet = {}
+for _, id in ipairs(Config.PlayerWhitelist) do
+    whitelistSet[id] = true
+end
+
+local whitelistedPresent = false
+
+local function rebuildWhitelistCache()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and whitelistSet[plr.UserId] then
+            whitelistedPresent = true
+            return
+        end
+    end
+    whitelistedPresent = false
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    if whitelistSet[plr.UserId] then
+        whitelistedPresent = true
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if whitelistSet[plr.UserId] then
+        -- Removing one whitelisted player — rebuild in case others remain
+        rebuildWhitelistCache()
+    end
+end)
+
+rebuildWhitelistCache() -- run once on load for anyone already in server
+
+-- ── State ────────────────────────────
+local macroEnabled = true
+local lastHealth   = nil
+local heartbeat    = nil
+local currentHuman = nil
+
+-- ── Stop polling ─────────────────────────────
+local function stopPolling()
+    if heartbeat then
+        heartbeat:Disconnect()
+        heartbeat    = nil
+        currentHuman = nil
+        lastHealth   = nil
+    end
+end
+
+-- ── Start polling ───────────────────────────
+local function startPolling(humanoid)
+    stopPolling()
+    currentHuman = humanoid
+
+    -- Wait for a real non-zero health baseline (briefly 0 during spawn-in)
+    local waited = 0
+    while humanoid.Health <= 0 and waited < 5 do
+        task.wait(0.1)
+        waited += 0.1
+    end
+    lastHealth = humanoid.Health
+
+    heartbeat = RunService.Heartbeat:Connect(function()
+        if not currentHuman or not currentHuman.Parent then
+            stopPolling()
+            return
+        end
+
+        -- All checks are simple boolean/nil reads — no loops, no function calls
+        if not macroEnabled or whitelistedPresent then
+            lastHealth = currentHuman.Health
+            return
+        end
+
+        local hp = currentHuman.Health
+        if lastHealth ~= nil and hp < lastHealth then
+            stopPolling() -- disconnect first to prevent double-fire
+            shutdownGame()
+            return
+        end
+
+        lastHealth = hp
+    end)
+
+end
+
+-- ── Character binding ────────────────────────────
+local function bindCharacter(character)
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if not humanoid then
+        showNotification("autoLog", "ERROR: No Humanoid", 3)
+        return
+    end
+    startPolling(humanoid)
+end
+
+-- ── Input ────────────────────────────────
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    if input.KeyCode == Config.PanicKey then
+        shutdownGame()
+        return
+    end
+
+    if input.KeyCode == Config.ToggleKey then
+        macroEnabled = not macroEnabled
+        showNotification(
+            "autoLog",
+            macroEnabled and "Enabled ✓" or "Disabled ✗",
+            2
+        )
+    end
+end)
+
+-- ── Bootstrap───────────────────────────
+task.spawn(function()
+    local timeout = 0
+    while not Players.LocalPlayer and timeout < 10 do
+        task.wait(0.5)
+        timeout += 0.5
+    end
+
+    player = Players.LocalPlayer
+    if not player then
+        showNotification("autoLog", "ERROR: No LocalPlayer", 3)
+        return
+    end
+
+    if player.Character then
+        task.spawn(bindCharacter, player.Character)
+    end
+
+    player.CharacterAdded:Connect(function(character)
+        task.wait(0.2)
+        bindCharacter(character)
+    end)
+
+end)
