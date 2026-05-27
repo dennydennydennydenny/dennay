@@ -1,139 +1,20 @@
-return function(Config)
-    -- =====================================================
-    --                     AUTO LOG SCRIPT
-    -- =====================================================
+local remote = game:GetService("ReplicatedStorage")
+    :WaitForChild("Remotes")
+    :WaitForChild("ConfirmRemote")
 
-    local Players = game:GetService("Players")
-    local UserInputService = game:GetService("UserInputService")
-    local player = Players.LocalPlayer
+while true do
+    local t = tick()
 
-    Config = Config or {}
-    Config.PlayerWhitelist = Config.PlayerWhitelist or {}
+    -- smooth RGB cycle using sine waves
+    local r = (math.sin(t) + 1) / 2
+    local g = (math.sin(t + 2) + 1) / 2
+    local b = (math.sin(t + 4) + 1) / 2
 
-    -- Executed Check
-    local existing = game.CoreGui:FindFirstChild("LogMacroUI")
-    if existing then
-        existing:Destroy()
-    end
+    local args = {
+        Color3.new(r, g, b)
+    }
 
-    -- UI
-    local ScreenGui = Instance.new("ScreenGui")
-    local TextLabel = Instance.new("TextLabel")
+    remote:FireServer(unpack(args))
 
-    ScreenGui.Name = "LogMacroUI"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.Parent = game.CoreGui
-
-    TextLabel.Parent = ScreenGui
-    TextLabel.Size = UDim2.new(0, 220, 0, 40)
-    TextLabel.AnchorPoint = Vector2.new(1, 0)
-    TextLabel.Position = UDim2.new(1, -20, 0, 20)
-
-    TextLabel.TextColor3 = Color3.new(1, 1, 1)
-    TextLabel.BackgroundColor3 = Color3.new(0, 0, 0)
-    TextLabel.BackgroundTransparency = 0.3
-    TextLabel.TextScaled = true
-    TextLabel.Font = Enum.Font.SourceSansBold
-    TextLabel.Visible = false
-
-    local messageID = 0
-    local macroEnabled = true -- starts disabled
-    local lastHealth = nil
-    local healthConnection = nil
-
-    local function showMessage(text)
-        messageID += 1
-        local currentID = messageID
-
-        TextLabel.Text = text
-        TextLabel.Visible = true
-
-        task.delay(1, function()
-            if currentID == messageID then
-                TextLabel.Visible = false
-            end
-        end)
-    end
-
-    local function shutdownGame()
-        pcall(function()
-            game:Shutdown()
-        end)
-
-        pcall(function()
-            player:Kick("Auto Log triggered")
-        end)
-    end
-
-    local function isPlayerWhitelisted()
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= player then
-                for _, id in ipairs(Config.PlayerWhitelist) do
-                    if plr.UserId == id then
-                        return true
-                    end
-                end
-            end
-        end
-
-        return false
-    end
-
-    local function bindCharacter(character)
-        local humanoid = character:WaitForChild("Humanoid")
-        lastHealth = humanoid.Health
-
-        if healthConnection then
-            healthConnection:Disconnect()
-            healthConnection = nil
-        end
-
-        healthConnection = humanoid.HealthChanged:Connect(function(newHealth)
-            if not macroEnabled then
-                lastHealth = newHealth
-                return
-            end
-
-            -- If a whitelisted player is in the server, do not autolog
-            if isPlayerWhitelisted() then
-                lastHealth = newHealth
-                return
-            end
-
-            if lastHealth and newHealth < lastHealth then
-                shutdownGame()
-            end
-
-            lastHealth = newHealth
-        end)
-    end
-
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp then
-            return
-        end
-
-        if input.KeyCode == Config.PanicKey then
-            shutdownGame()
-            return
-        end
-
-        if input.KeyCode == Config.ToggleKey then
-            macroEnabled = not macroEnabled
-
-            if macroEnabled then
-                showMessage("autoLog Enabled")
-            else
-                showMessage("autoLog Disabled")
-            end
-        end
-    end)
-
-    if player.Character then
-        bindCharacter(player.Character)
-    end
-
-    player.CharacterAdded:Connect(bindCharacter)
-
-    -- No startup message
+    task.wait(0.05) -- speed (lower = faster rainbow)
 end
